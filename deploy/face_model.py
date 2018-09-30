@@ -43,7 +43,10 @@ def get_model(ctx, image_size, model_str, layer):
 class FaceModel:
   def __init__(self, args):
     self.args = args
-    ctx = mx.gpu(args.gpu)
+    if args.enable_gpu == True:
+      ctx = mx.gpu(args.gpu)
+    else:
+      ctx = mx.cpu()
     _vec = args.image_size.split(',')
     assert len(_vec)==2
     image_size = (int(_vec[0]), int(_vec[1]))
@@ -54,7 +57,7 @@ class FaceModel:
     if len(args.ga_model)>0:
       self.ga_model = get_model(ctx, image_size, args.ga_model, 'fc1')
 
-    self.threshold = args.threshold
+    #self.threshold = args.threshold
     self.det_minsize = 50
     self.det_threshold = [0.6,0.7,0.8]
     #self.det_factor = 0.9
@@ -71,17 +74,28 @@ class FaceModel:
     ret = self.detector.detect_face(face_img, det_type = self.args.det)
     if ret is None:
       return None
-    bbox, points = ret
-    if bbox.shape[0]==0:
+    bbox_list, points_list = ret
+    if bbox_list.shape[0]==0:
       return None
-    bbox = bbox[0,0:4]
-    points = points[0,:].reshape((2,5)).T
-    #print(bbox)
-    #print(points)
-    nimg = face_preprocess.preprocess(face_img, bbox, points, image_size='112,112')
-    nimg = cv2.cvtColor(nimg, cv2.COLOR_BGR2RGB)
-    aligned = np.transpose(nimg, (2,0,1))
-    return aligned
+    
+    aligned_list = []
+    nimg_list = []
+    pose_type_list = []
+
+    for bbox, points in zip(bbox_list, points_list):
+      bbox = bbox[0:4]
+      points = points.reshape((2,5)).T
+      #print(bbox)
+      #print(points)
+      nimg = face_preprocess.preprocess(face_img, bbox, points, image_size='112,112')
+      nimg_list.append(nimg)
+      nimg = cv2.cvtColor(nimg, cv2.COLOR_BGR2RGB)
+      aligned = np.transpose(nimg, (2,0,1))
+      aligned_list.append(aligned)
+      pose_type,_,_,_,_ = self.check_large_pose(points,bbox)
+      pose_type_list.append(pose_type)
+
+    return aligned_list, nimg_list, pose_type_list
 
   def get_feature(self, aligned):
     input_blob = np.expand_dims(aligned, axis=0)
@@ -106,3 +120,75 @@ class FaceModel:
 
     return gender, age
 
+  def check_large_pose(self, landmark, bbox):
+      assert landmark.shape==(5,2)
+      assert len(bbox)==4
+      def get_theta(base, x, y):
+        vx = x-base
+        vy = y-base
+        vx[1] *= -1
+        vy[1] *= -1
+        tx = np.arctan2(vx[1], vx[0])
+        ty = np.arctan2(vy[1], vy[0])
+        d = ty-tx
+        d = np.degrees(d)
+        #print(vx, tx, vy, ty, d)
+        #if d<-1.*math.pi:
+        #  d+=2*math.pi
+        #elif d>math.pi:
+        #  d-=2*math.pi
+        if d<-180.0:
+          d+=360.
+        elif d>180.0:
+          d-=360.0
+        return d
+      landmark = landmark.astype(np.float32)
+
+      theta1 = get_theta(landmark[0], landmark[3], landmark[2])
+      theta2 = get_theta(landmark[1], landmark[2], landmark[4])
+      #print(va, vb, theta2)
+      theta3 = get_theta(landmark[0], landmark[2], landmark[1])
+      theta4 = get_theta(landmark[1], landmark[0], landmark[2])
+      theta5 = get_theta(landmark[3], landmark[4], landmark[2])
+      theta6 = get_theta(landmark[4], landmark[2], landmark[3])
+      theta7 = get_theta(landmark[3], landmark[2], landmark[0])
+      theta8 = get_theta(landmark[4], landmark[1], landmark[2])
+      #print(theta1, theta2, theta3, theta4, theta5, theta6, theta7, theta8)
+      left_score = 0.0
+      right_score = 0.0
+      up_score = 0.0
+      down_score = 0.0
+      if theta1<=0.0:
+        left_score = 10.0
+      elif theta2<=0.0:
+        right_score = 10.0
+      else:
+        left_score = theta2/theta1
+        right_score = theta1/theta2
+      if theta3<=10.0 or theta4<=10.0:
+        up_score = 10.0
+      else:
+        up_score = max(theta1/theta3, theta2/theta4)
+      if theta5<=10.0 or theta6<=10.0:
+        down_score = 10.0
+      else:
+        down_score = max(theta7/theta5, theta8/theta6)
+      mleft = (landmark[0][0]+landmark[3][0])/2
+      mright = (landmark[1][0]+landmark[4][0])/2
+      box_center = ( (bbox[0]+bbox[2])/2,  (bbox[1]+bbox[3])/2 )
+      ret = 0
+      if left_score>=3.0:
+        ret = 1
+      if ret==0 and left_score>=2.0:
+        if mright<=box_center[0]:
+          ret = 1
+      if ret==0 and right_score>=3.0:
+        ret = 2
+      if ret==0 and right_score>=2.0:
+        if mleft>=box_center[0]:
+          ret = 2
+      if ret==0 and up_score>=2.0:
+        ret = 3
+      if ret==0 and down_score>=5.0:
+        ret = 4
+      return ret, left_score, right_score, up_score, down_score
