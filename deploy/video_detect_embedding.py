@@ -25,10 +25,12 @@ o_dir = args.output + '/'
 mkdir_cmd = 'mkdir -p ' + args.output
 os.system('rm -rf '+args.output)
 os.system(mkdir_cmd)
-os.system('mkdir -p ' + args.output + '/original')
+#os.system('mkdir -p ' + args.output + '/original')
 for i in range(5):
   os.system('mkdir -p ' + args.output + '/' + str(i))
-
+os.system('mkdir -p ' + args.output + '/0/' + 'middle' )
+os.system('mkdir -p ' + args.output + '/0/' + 'left' )
+os.system('mkdir -p ' + args.output + '/0/' + 'right' )
 model = face_model.FaceModel(args)
 
 cap = cv2.VideoCapture(args.input_video)
@@ -47,7 +49,7 @@ while(True):
   if frame_count % args.detect_peroid != 0:
     continue
   
-  cv2.imwrite(args.output + '/original/' + str(frame_count) + '.jpg', frame)
+  #cv2.imwrite(args.output + '/original/' + str(frame_count) + '.jpg', frame)
 
   face_ret = model.get_input(frame)
   if face_ret is None:
@@ -57,7 +59,17 @@ while(True):
 
   idx = 0
   for aligned, nimg, pose_type in zip(aligned_list, nimg_list, pose_type_list):
-    cv2.imwrite(args.output + '/' + str(pose_type) + '/' + str(frame_count) + '_' + str(idx) + '.jpg', nimg)
+    pose_type,left_score,right_score = pose_type
+    if pose_type != 0:
+      cv2.imwrite(args.output + '/' + str(pose_type) + '/' + str(frame_count) + '_' + str(idx) + '.jpg', nimg)
+    else:
+      threshold = 1.85
+      if left_score<threshold and right_score<threshold:
+        cv2.imwrite(args.output + '/0/' + 'middle' + '/' + str(frame_count) + '_' + str(idx) + '.jpg', nimg)
+      elif left_score>=threshold:
+        cv2.imwrite(args.output + '/0/' + 'left' + '/' + str(frame_count) + '_' + str(idx) + '.jpg', nimg)
+      elif right_score>=threshold:
+        cv2.imwrite(args.output + '/0/' + 'right' + '/' + str(frame_count) + '_' + str(idx) + '.jpg', nimg)
     idx += 1
     x = model.get_feature(aligned)
     X.append(x)

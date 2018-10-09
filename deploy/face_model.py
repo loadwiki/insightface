@@ -59,7 +59,7 @@ class FaceModel:
 
     #self.threshold = args.threshold
     self.det_minsize = 50
-    self.det_threshold = [0.6,0.7,0.8]
+    self.det_threshold = [0.65,0.75,0.8]
     #self.det_factor = 0.9
     self.image_size = image_size
     mtcnn_path = os.path.join(os.path.dirname(__file__), 'mtcnn-model')
@@ -92,8 +92,8 @@ class FaceModel:
       nimg = cv2.cvtColor(nimg, cv2.COLOR_BGR2RGB)
       aligned = np.transpose(nimg, (2,0,1))
       aligned_list.append(aligned)
-      pose_type,_,_,_,_ = self.check_large_pose(points,bbox)
-      pose_type_list.append(pose_type)
+      pose_type,left_score,right_score,_,_ = self.check_large_pose(points,bbox)
+      pose_type_list.append((pose_type,left_score,right_score))
 
     return aligned_list, nimg_list, pose_type_list
 
@@ -177,14 +177,15 @@ class FaceModel:
       mright = (landmark[1][0]+landmark[4][0])/2
       box_center = ( (bbox[0]+bbox[2])/2,  (bbox[1]+bbox[3])/2 )
       ret = 0
-      if left_score>=3.0:
+      threshold = [5.0,4.0]
+      if left_score>=threshold[0]:
         ret = 1
-      if ret==0 and left_score>=2.0:
+      if ret==0 and left_score>=threshold[1]:
         if mright<=box_center[0]:
           ret = 1
-      if ret==0 and right_score>=3.0:
+      if ret==0 and right_score>=threshold[0]:
         ret = 2
-      if ret==0 and right_score>=2.0:
+      if ret==0 and right_score>=threshold[1]:
         if mleft>=box_center[0]:
           ret = 2
       if ret==0 and up_score>=2.0:
